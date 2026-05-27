@@ -221,3 +221,12 @@ type JobStats struct {
 	InterviewCount int `json:"interview_count"`
 	OfferCount  int `json:"offer_count"`
 }
+
+type SMTPConfig struct {
+	Host     string `json:"host"`
+	Port     string `json:"port"`
+	User     string `json:"user"`
+	Pass     string `json:"pass"`
+	From     string `json:"from"`
+	Security string `json:"security"`
+}

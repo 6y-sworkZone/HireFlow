@@ -834,3 +834,82 @@ tr:hover {
   margin-top: 2px;
   cursor: pointer;
 }
+
+.md-preview {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #333;
+}
+
+.md-preview h1, .md-preview h2, .md-preview h3, .md-preview h4 {
+  margin: 12px 0 8px 0;
+  font-weight: 600;
+}
+
+.md-preview h1 { font-size: 22px; }
+.md-preview h2 { font-size: 18px; }
+.md-preview h3 { font-size: 16px; }
+.md-preview h4 { font-size: 14px; }
+
+.md-preview p { margin: 8px 0; }
+
+.md-preview ul, .md-preview ol {
+  padding-left: 20px;
+  margin: 8px 0;
+}
+
+.md-preview li { margin: 4px 0; }
+
+.md-preview code {
+  background: #f5f5f5;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: Consolas, monospace;
+  font-size: 13px;
+}
+
+.md-preview pre {
+  background: #f5f5f5;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.md-preview pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.md-preview blockquote {
+  border-left: 4px solid #667eea;
+  padding-left: 12px;
+  margin: 12px 0;
+  color: #666;
+  background: #f8f9ff;
+}
+
+.md-preview a {
+  color: #667eea;
+  text-decoration: none;
+}
+
+.md-preview hr {
+  margin: 16px 0;
+  border: none;
+  border-top: 1px solid #eee;
+}
+
+.md-preview table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+}
+
+.md-preview th, .md-preview td {
+  border: 1px solid #ddd;
+  padding: 8px 12px;
+}
+
+.md-preview th {
+  background: #f5f5f5;
+}

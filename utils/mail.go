@@ -6,36 +6,83 @@ import (
 	"net/smtp"
 
 	"hireflow/config"
+	"hireflow/database"
+	"hireflow/models"
 )
 
-func SendEmail(to string, subject string, body string) error {
-	cfg := config.Load()
+func GetSMTPConfig() models.SMTPConfig {
+	var cfg models.SMTPConfig
 
-	if cfg.SMTPHost == "" || cfg.SMTPUser == "" {
+	rows, err := database.DB.Query("SELECT key, value FROM settings WHERE key LIKE 'smtp_%'")
+	if err != nil {
+		envCfg := config.Load()
+		return models.SMTPConfig{
+			Host: envCfg.SMTPHost,
+			Port: envCfg.SMTPPort,
+			User: envCfg.SMTPUser,
+			Pass: envCfg.SMTPPass,
+			From: envCfg.SMTPFrom,
+		}
+	}
+	defer rows.Close()
+
+	settings := make(map[string]string)
+	for rows.Next() {
+		var key, value string
+		rows.Scan(&key, &value)
+		settings[key] = value
+	}
+
+	cfg.Host = settings["smtp_host"]
+	cfg.Port = settings["smtp_port"]
+	cfg.User = settings["smtp_user"]
+	cfg.Pass = settings["smtp_pass"]
+	cfg.From = settings["smtp_from"]
+	cfg.Security = settings["smtp_security"]
+
+	if cfg.Host == "" {
+		envCfg := config.Load()
+		cfg.Host = envCfg.SMTPHost
+		cfg.Port = envCfg.SMTPPort
+		cfg.User = envCfg.SMTPUser
+		cfg.Pass = envCfg.SMTPPass
+		cfg.From = envCfg.SMTPFrom
+	}
+
+	return cfg
+}
+
+func SendEmail(to string, subject string, body string) error {
+	cfg := GetSMTPConfig()
+	return SendEmailWithConfig(cfg, to, subject, body)
+}
+
+func SendEmailWithConfig(cfg models.SMTPConfig, to string, subject string, body string) error {
+	if cfg.Host == "" || cfg.User == "" {
 		return fmt.Errorf("SMTP未配置")
 	}
 
-	from := cfg.SMTPFrom
+	from := cfg.From
 	if from == "" {
-		from = cfg.SMTPUser
+		from = cfg.User
 	}
 
 	mime := "MIME-Version: 1.0;\r\nContent-Type: text/html; charset=\"UTF-8\";\r\n"
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n%s\r\n%s",
 		from, to, subject, mime, body)
 
-	smtpPort := cfg.SMTPPort
+	smtpPort := cfg.Port
 	if smtpPort == "" {
 		smtpPort = "587"
 	}
 
-	addr := fmt.Sprintf("%s:%s", cfg.SMTPHost, smtpPort)
+	addr := fmt.Sprintf("%s:%s", cfg.Host, smtpPort)
 
-	auth := smtp.PlainAuth("", cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPHost)
+	auth := smtp.PlainAuth("", cfg.User, cfg.Pass, cfg.Host)
 
 	tlsconfig := &tls.Config{
 		InsecureSkipVerify: true,
-		ServerName:         cfg.SMTPHost,
+		ServerName:         cfg.Host,
 	}
 
 	conn, err := tls.Dial("tcp", addr, tlsconfig)
@@ -44,7 +91,7 @@ func SendEmail(to string, subject string, body string) error {
 	}
 	defer conn.Close()
 
-	client, err := smtp.NewClient(conn, cfg.SMTPHost)
+	client, err := smtp.NewClient(conn, cfg.Host)
 	if err != nil {
 		return fmt.Errorf("SMTP客户端创建失败: %v", err)
 	}

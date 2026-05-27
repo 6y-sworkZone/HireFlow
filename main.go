@@ -160,6 +160,14 @@ func main() {
 			analytics.GET("/stage-stay", handlers.GetStageStayStats)
 		}
 
+		settings := api.Group("/settings")
+		settings.Use(middleware.AuthMiddleware())
+		{
+			settings.GET("", handlers.GetSettings)
+			settings.POST("", handlers.SaveSettings)
+			settings.POST("/test-smtp", handlers.TestSMTPConnection)
+		}
+
 		notifications := api.Group("/notifications")
 		notifications.Use(middleware.AuthMiddleware())
 		{

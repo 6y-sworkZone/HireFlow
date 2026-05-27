@@ -266,10 +266,10 @@ func createTables() error {
 
 	CREATE INDEX IF NOT EXISTS idx_candidates_email ON candidates(email);
 	CREATE INDEX IF NOT EXISTS idx_candidates_phone ON candidates(phone);
-	CREATE INDEX idx_candidate_jobs_job ON candidate_jobs(job_id);
-	CREATE INDEX idx_stage_history_cj ON stage_history(candidate_job_id);
-	CREATE INDEX idx_interviews_time ON interviews(interview_time);
-	CREATE INDEX idx_notifications_user ON notifications(user_id);
+	CREATE INDEX IF NOT EXISTS idx_candidate_jobs_job ON candidate_jobs(job_id);
+	CREATE INDEX IF NOT EXISTS idx_stage_history_cj ON stage_history(candidate_job_id);
+	CREATE INDEX IF NOT EXISTS idx_interviews_time ON interviews(interview_time);
+	CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
 	`
 
 	_, err := DB.Exec(schema)

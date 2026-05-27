@@ -253,7 +253,12 @@ function showJobFormModal(j) {
         <div class="form-group"><label class="form-label">薪资下限(K)</label><input type="number" class="form-input" id="jfsm" value="${j?.salary_min||''}"></div>
         <div class="form-group"><label class="form-label">薪资上限(K)</label><input type="number" class="form-input" id="jfxm" value="${j?.salary_max||''}"></div>
       </div>
-      <div class="form-group"><label class="form-label">职位描述(Markdown)</label><textarea class="form-textarea" id="jfdesc" rows="4">${j?.description||''}</textarea></div>
+      <div class="form-group"><label class="form-label">职位描述(Markdown) - 支持实时预览</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <textarea class="form-textarea" id="jfdesc" rows="8" oninput="updateMDPreview()" style="height:200px;">${j?.description||''}</textarea>
+          <div class="md-preview" id="mdprev" style="border:1px solid #ddd;border-radius:6px;padding:12px;height:200px;overflow-y:auto;background:#fafafa;"></div>
+        </div>
+      </div>
       <div class="form-group"><label class="form-label">任职要求</label><textarea class="form-textarea" id="jfreq" rows="4">${j?.requirements||''}</textarea></div>
       <div class="form-row">
         <div class="form-group"><label class="form-label">标签(逗号分隔)</label><input class="form-input" id="jftg" value="${j?.tags||''}"></div>
@@ -263,6 +268,15 @@ function showJobFormModal(j) {
       </div>
       <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button><button type="submit" class="btn btn-primary">保存</button></div>
     </form>`);
+  setTimeout(updateMDPreview, 50);
+}
+
+function updateMDPreview() {
+  const md = document.getElementById('jfdesc')?.value || '';
+  const prev = document.getElementById('mdprev');
+  if (prev && typeof marked !== 'undefined') {
+    prev.innerHTML = marked.parse(md) || '<p style="color:#999;">预览区域</p>';
+  }
 }
 
 function saveJob(e, id) {
@@ -279,8 +293,10 @@ function viewJob(id) {
       const j = r.data;
       api('/jobs/' + id + '/stats').then(sr => {
         const s = sr.code === 0 ? sr.data : {};
+        const descHTML = (typeof marked !== 'undefined' && j.description) ? marked.parse(j.description) : (j.description || '暂无描述');
+        const reqHTML = (typeof marked !== 'undefined' && j.requirements) ? marked.parse(j.requirements) : (j.requirements || '暂无要求');
         showModal(`<div class="modal-header"><h3 class="modal-title">${j.title}</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
-          <div style="line-height:1.8;"><p><strong>部门：</strong>${j.department}</p><p><strong>工作地点：</strong>${j.location||'-'}</p><p><strong>薪资范围：</strong>${j.salary_min}K - ${j.salary_max}K</p><p><strong>标签：</strong>${(j.tags||'').split(',').filter(t=>t).map(t=>`<span class="tag">${t}</span>`).join('')}</p><p><strong>状态：</strong><span class="status-badge status-${j.status}">${statusText(j.status)}</span></p><p><strong>发布人：</strong>${j.creator_name||'-'}</p><p><strong>发布时间：</strong>${fmt(j.created_at)}</p><hr style="margin:15px 0;"><h4>职位描述</h4><pre style="white-space:pre-wrap;font-family:inherit;background:#f8f9fa;padding:12px;border-radius:6px;">${j.description||'暂无描述'}</pre><h4>任职要求</h4><pre style="white-space:pre-wrap;font-family:inherit;background:#f8f9fa;padding:12px;border-radius:6px;">${j.requirements||'暂无要求'}</pre><hr style="margin:15px 0;"><h4>招聘统计</h4><p>收到简历：${s.resume_count||0} 份</p><p>面试数量：${s.interview_count||0} 场</p><p>Offer数量：${s.offer_count||0} 个</p></div>
+          <div style="line-height:1.8;"><p><strong>部门：</strong>${j.department}</p><p><strong>工作地点：</strong>${j.location||'-'}</p><p><strong>薪资范围：</strong>${j.salary_min}K - ${j.salary_max}K</p><p><strong>标签：</strong>${(j.tags||'').split(',').filter(t=>t).map(t=>`<span class="tag">${t}</span>`).join('')}</p><p><strong>状态：</strong><span class="status-badge status-${j.status}">${statusText(j.status)}</span></p><p><strong>发布人：</strong>${j.creator_name||'-'}</p><p><strong>发布时间：</strong>${fmt(j.created_at)}</p><hr style="margin:15px 0;"><h4>职位描述</h4><div class="md-preview">${descHTML}</div><h4>任职要求</h4><div class="md-preview">${reqHTML}</div><hr style="margin:15px 0;"><h4>招聘统计</h4><p>收到简历：${s.resume_count||0} 份</p><p>面试数量：${s.interview_count||0} 场</p><p>Offer数量：${s.offer_count||0} 个</p></div>
           <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">关闭</button></div>`);
       });
     }
@@ -411,9 +427,19 @@ function viewCand(id) {
         const scores = sr.code===0 ? (sr.data||[]) : [];
         const avg = scores.length > 0 ? (scores.reduce((a,s)=>a+s.score,0)/scores.length).toFixed(1) : 0;
         const jobs = jr.code===0 ? (jr.data?.list||[]) : [];
+        const isPDF = c.resume_path && c.resume_path.toLowerCase().endsWith('.pdf');
+        const isWord = c.resume_path && (c.resume_path.toLowerCase().endsWith('.doc') || c.resume_path.toLowerCase().endsWith('.docx'));
         showModal(`<div class="modal-header"><h3 class="modal-title">${c.name}</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
-          <div class="tabs"><div class="tab active" onclick="switchTab(event,'info')">基本信息</div><div class="tab" onclick="switchTab(event,'notes')">内部备注 (${notes.length})</div><div class="tab" onclick="switchTab(event,'scores')">评分 (${scores.length})</div></div>
+          <div class="tabs"><div class="tab active" onclick="switchTab(event,'info')">基本信息</div><div class="tab" onclick="switchTab(event,'resume')">简历${c.resume_path?' ✓':''}</div><div class="tab" onclick="switchTab(event,'notes')">内部备注 (${notes.length})</div><div class="tab" onclick="switchTab(event,'scores')">评分 (${scores.length})</div></div>
           <div id="ti" style="line-height:1.8;"><p><strong>邮箱：</strong>${c.email||'-'}</p><p><strong>电话：</strong>${c.phone||'-'}</p><p><strong>当前公司：</strong>${c.current_company||'-'}</p><p><strong>工作年限：</strong>${c.work_years}年</p><p><strong>学历：</strong>${c.education||'-'}</p><p><strong>期望薪资：</strong>${c.expected_salary}K</p><p><strong>来源：</strong>${c.source}</p><p><strong>标签：</strong>${(c.tags||'').split(',').filter(t=>t).map(t=>`<span class="tag">${t}</span>`).join('')}</p><p><strong>备注：</strong>${c.remark||'-'}</p><p><strong>创建时间：</strong>${fmt(c.created_at)}</p></div>
+          <div id="tr" style="display:none;">
+            ${c.resume_path ?
+              (isPDF ? `<div><p style="margin-bottom:10px;"><button class="btn btn-secondary btn-sm" onclick="window.open('/api/candidates/${id}/resume','_blank')">在新窗口打开</button></div><div class="resume-preview"><iframe src="/api/candidates/${id}/resume" style="width:100%;height:500px;border:1px solid #ddd;border-radius:6px;"></iframe></div>` :
+               isWord ? `<div class="empty-state"><div class="empty-state-icon">📄</div><p>Word 格式简历，请下载后查看</p><button class="btn btn-primary" onclick="window.location.href='/api/candidates/${id}/resume'">下载简历</button></div>` :
+               `<div class="empty-state"><div class="empty-state-icon">📁</div><p>简历格式不支持在线预览</p><button class="btn btn-primary" onclick="window.location.href='/api/candidates/${id}/resume'">下载简历</button></div>`) :
+              `<div class="empty-state"><div class="empty-state-icon">📄</div><p>暂无简历上传</p><button class="btn btn-primary" onclick="closeModal();uploadResume(${id})">上传简历</button></div>`
+            }
+          </div>
           <div id="tn" style="display:none;"><div style="margin-bottom:15px;"><textarea class="form-textarea" id="nnc" placeholder="添加内部备注..." rows="3"></textarea><button class="btn btn-primary btn-sm" onclick="addNote(${id})">添加备注</button></div>
             ${notes.length===0 ? '<div style="color:#999;text-align:center;padding:20px;">暂无备注</div>' : notes.map(n => `<div style="padding:10px;border-bottom:1px solid #f0f0f0;"><div style="font-weight:500;">${n.user_name}</div><div style="margin:5px 0;">${n.content}</div><div style="font-size:11px;color:#999;">${fmt(n.created_at)}</div></div>`).join('')}
           </div>
@@ -433,9 +459,12 @@ function viewCand(id) {
 function switchTab(e, t) {
   document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
   e.target.classList.add('active');
-  document.getElementById('ti').style.display = t === 'info' ? 'block' : 'none';
-  document.getElementById('tn').style.display = t === 'notes' ? 'block' : 'none';
-  document.getElementById('ts').style.display = t === 'scores' ? 'block' : 'none';
+  ['ti','tr','tn','ts'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  const target = document.getElementById(t==='info'?'ti':t==='resume'?'tr':t==='notes'?'tn':'ts');
+  if (target) target.style.display = 'block';
 }
 
 function addNote(id) { const v = document.getElementById('nnc').value; if (!v) return; api('/candidates/' + id + '/notes', { method: 'POST', body: JSON.stringify({ content: v }) }).then(r => { if (r.code === 0) { showToast('备注添加成功'); viewCand(id); } }); }
@@ -962,30 +991,153 @@ function delOfferTpl(id) {
 }
 
 function renderAnalytics() {
-  Promise.all([api('/analytics/funnel'), api('/analytics/channels'), api('/analytics/interviewers'), api('/analytics/offer-acceptance')]).then(([f, ch, iv, oa]) => {
+  Promise.all([api('/analytics/funnel'), api('/analytics/channels'), api('/analytics/interviewers'), api('/analytics/offer-acceptance'), api('/analytics/monthly-trend')]).then(([f, ch, iv, oa, mt]) => {
     const funnel = f.data?.stages || [];
-    const maxCount = funnel.length>0 ? Math.max(...funnel.map(s=>s.count)) : 1;
+    const channels = ch.data || [];
+    const offerAccept = oa.data || {};
+    const trend = mt.data || [];
+
     document.getElementById('ct').innerHTML = `<div class="card"><div class="card-header"><h3 class="card-title">招聘漏斗</h3></div>
-      <div class="funnel-chart">${funnel.map(s=>`<div class="funnel-bar"><div class="funnel-bar-label">${s.stage_name}</div><div class="funnel-bar-fill" style="width:${(s.count/maxCount*100).toFixed(0)}%;">${s.count}人 (${s.rate.toFixed(1)}%)</div></div>`).join('')}</div>
+      <div style="position:relative;height:300px;"><canvas id="funnelChart"></canvas></div>
+    </div>
+    <div class="card"><div class="card-header"><h3 class="card-title">月度趋势</h3></div>
+      <div style="position:relative;height:300px;"><canvas id="trendChart"></canvas></div>
     </div>
     <div class="card"><div class="card-header"><h3 class="card-title">渠道效果</h3></div>
-      <table><thead><tr><th>渠道</th><th>总数</th><th>活跃</th><th>Offer</th><th>入职</th><th>入职率</th></tr></thead><tbody>
-        ${(ch.data||[]).map(x=>`<tr><td>${x.source}</td><td>${x.total_count}</td><td>${x.active_count}</td><td>${x.offer_count}</td><td>${x.hired_count}</td><td>${x.hire_rate.toFixed(1)}%</td></tr>`).join('')}
-      </tbody></table>
+      <div style="position:relative;height:300px;"><canvas id="channelChart"></canvas></div>
+    </div>
+    <div class="card"><div class="card-header"><h3 class="card-title">Offer接受率</h3></div>
+      <div style="position:relative;height:300px;display:flex;align-items:center;justify-content:center;"><div style="width:50%;"><canvas id="offerChart"></canvas></div><div style="width:50%;text-align:center;"><div style="font-size:48px;font-weight:bold;color:#667eea;">${(offerAccept.acceptance_rate||0).toFixed(1)}%</div><div style="color:#888;margin-top:10px;">已发送 ${offerAccept.total_sent||0} 个，已接受 ${offerAccept.total_accepted||0} 个</div></div></div>
     </div>
     <div class="card"><div class="card-header"><h3 class="card-title">面试官工作量</h3></div>
       <table><thead><tr><th>面试官</th><th>部门</th><th>面试数</th><th>平均分</th></tr></thead><tbody>
-        ${(iv.data||[]).map(x=>`<tr><td>${x.real_name}</td><td>${x.department||'-'}</td><td>${x.interview_count}</td><td>${x.avg_score.toFixed(1)}</td></tr>`).join('')}
+        ${(iv.data||[]).map(x => `<tr><td>${x.real_name}</td><td>${x.department||'-'}</td><td>${x.interview_count}</td><td>${x.avg_score.toFixed(1)}</td></tr>`).join('')}
       </tbody></table>
-    </div>
-    <div class="card"><div class="card-header"><h3 class="card-title">Offer接受率</h3></div>
-      <div style="text-align:center;padding:30px;"><div style="font-size:48px;font-weight:bold;color:#667eea;">${(oa.data?.acceptance_rate||0).toFixed(1)}%</div><div style="color:#888;margin-top:10px;">已发送 ${oa.data?.total_sent||0} 个，已接受 ${oa.data?.total_accepted||0} 个</div></div>
     </div>`;
+
+    renderFunnelChart(funnel);
+    renderTrendChart(trend);
+    renderChannelChart(channels);
+    renderOfferChart(offerAccept);
+  });
+}
+
+function renderFunnelChart(data) {
+  const ctx = document.getElementById('funnelChart');
+  if (!ctx || typeof Chart === 'undefined') return;
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.stage_name),
+      datasets: [{
+        label: '人数',
+        data: data.map(d => d.count),
+        backgroundColor: [
+          'rgba(102, 126, 234, 0.9)',
+          'rgba(118, 75, 162, 0.85)',
+          'rgba(159, 122, 234, 0.8)',
+          'rgba(236, 72, 153, 0.75)',
+          'rgba(246, 109, 155, 0.7)',
+          'rgba(249, 168, 212, 0.65)'
+        ],
+        borderRadius: 4
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const d = data[ctx.dataIndex];
+              return `${d.count}人 (转化率: ${d.rate.toFixed(1)}%)`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+        y: { grid: { display: false } }
+      }
+    }
+  });
+}
+
+function renderTrendChart(data) {
+  const ctx = document.getElementById('trendChart');
+  if (!ctx || typeof Chart === 'undefined') return;
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: data.map(d => d.month),
+      datasets: [
+        { label: '新增候选人', data: data.map(d => d.new_candidates), borderColor: '#667eea', backgroundColor: 'rgba(102, 126, 234, 0.1)', fill: true, tension: 0.3 },
+        { label: '面试', data: data.map(d => d.interviews), borderColor: '#f6ad55', backgroundColor: 'rgba(246, 173, 85, 0.1)', fill: true, tension: 0.3 },
+        { label: 'Offer', data: data.map(d => d.offers), borderColor: '#48bb78', backgroundColor: 'rgba(72, 187, 120, 0.1)', fill: true, tension: 0.3 },
+        { label: '入职', data: data.map(d => d.hired), borderColor: '#ed64a6', backgroundColor: 'rgba(237, 100, 166, 0.1)', fill: true, tension: 0.3 }
+      ]
+    },
+    options: {
+      plugins: { legend: { position: 'bottom' } },
+      scales: {
+        x: { grid: { color: 'rgba(0,0,0,0.05)' } },
+        y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } }
+      }
+    }
+  });
+}
+
+function renderChannelChart(data) {
+  const ctx = document.getElementById('channelChart');
+  if (!ctx || typeof Chart === 'undefined') return;
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.source),
+      datasets: [
+        { label: '总数', data: data.map(d => d.total_count), backgroundColor: 'rgba(102, 126, 234, 0.8)' },
+        { label: '活跃', data: data.map(d => d.active_count), backgroundColor: 'rgba(72, 187, 120, 0.8)' },
+        { label: 'Offer', data: data.map(d => d.offer_count), backgroundColor: 'rgba(246, 173, 85, 0.8)' },
+        { label: '入职', data: data.map(d => d.hired_count), backgroundColor: 'rgba(237, 100, 166, 0.8)' }
+      ]
+    },
+    options: {
+      plugins: { legend: { position: 'bottom' } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } }
+      }
+    }
+  });
+}
+
+function renderOfferChart(data) {
+  const ctx = document.getElementById('offerChart');
+  if (!ctx || typeof Chart === 'undefined') return;
+  const accepted = data.total_accepted || 0;
+  const rejected = (data.total_sent || 0) - accepted;
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['已接受', '已拒绝/待确认'],
+      datasets: [{
+        data: [accepted, rejected],
+        backgroundColor: ['#48bb78', '#e2e8f0'],
+        borderWidth: 0
+      }]
+    },
+    options: {
+      cutout: '65%',
+      plugins: { legend: { position: 'bottom' } }
+    }
   });
 }
 
 function renderSettings() {
-  document.getElementById('ct').innerHTML = `<div class="card">
+  Promise.all([api('/settings')]).then(([sr]) => {
+    const smtp = sr.code===0 ? sr.data : {};
+    document.getElementById('ct').innerHTML = `<div class="card">
     <div class="card-header"><h3 class="card-title">个人设置</h3></div>
     <form onsubmit="updateUser(event)">
       <div class="form-row"><div class="form-group"><label class="form-label">姓名</label><input class="form-input" id="srn" value="${currentUser?.real_name||''}"></div><div class="form-group"><label class="form-label">部门</label><input class="form-input" id="sd" value="${currentUser?.department||''}"></div></div>
@@ -1001,6 +1153,15 @@ function renderSettings() {
     </form>
   </div>
   <div class="card">
+    <div class="card-header"><h3 class="card-title">SMTP 邮件配置</h3></div>
+    <form onsubmit="saveSMTPSettings(event)">
+      <div class="form-row"><div class="form-group"><label class="form-label">SMTP 服务器</label><input class="form-input" id="smtp_host" value="${smtp.smtp_host||''}" placeholder="smtp.example.com"></div><div class="form-group"><label class="form-label">端口</label><input class="form-input" id="smtp_port" value="${smtp.smtp_port||'587'}" placeholder="587"></div></div>
+      <div class="form-row"><div class="form-group"><label class="form-label">用户名</label><input class="form-input" id="smtp_user" value="${smtp.smtp_user||''}" placeholder="your@email.com"></div><div class="form-group"><label class="form-label">密码</label><input type="password" class="form-input" id="smtp_pass" value="${smtp.smtp_pass||''}" placeholder="password or app password"></div></div>
+      <div class="form-row"><div class="form-group"><label class="form-label">发件人名称</label><input class="form-input" id="smtp_from" value="${smtp.smtp_from||''}" placeholder="HR <hr@company.com>"></div><div class="form-group"><label class="form-label">安全协议</label><select class="form-select" id="smtp_security"><option value="tls" ${smtp.smtp_security==='tls'?'selected':''}>TLS</option><option value="ssl" ${smtp.smtp_security==='ssl'?'selected':''}>SSL</option><option value="none" ${smtp.smtp_security==='none'?'selected':''}>无</option></select></div></div>
+      <div class="modal-footer" style="padding:0;"><div style="display:flex;gap:8px;"><input type="email" class="form-input" id="test_email" style="width:200px;" placeholder="测试邮件地址"><button type="button" class="btn btn-secondary" onclick="testSMTP()">测试连接</button></div><button type="submit" class="btn btn-primary">保存配置</button></div>
+    </form>
+  </div>
+  <div class="card">
     <div class="card-header"><h3 class="card-title">用户管理</h3></div>
     <div id="ul">加载中...</div>
   </div>
@@ -1010,6 +1171,41 @@ function renderSettings() {
     <div id="wrl">加载中...</div>
   </div>`;
   loadUserList(); loadWeeklyReports();
+  });
+}
+
+function saveSMTPSettings(e) {
+  e.preventDefault();
+  const d = {
+    smtp_host: document.getElementById('smtp_host').value,
+    smtp_port: document.getElementById('smtp_port').value,
+    smtp_user: document.getElementById('smtp_user').value,
+    smtp_pass: document.getElementById('smtp_pass').value,
+    smtp_from: document.getElementById('smtp_from').value,
+    smtp_security: document.getElementById('smtp_security').value
+  };
+  api('/settings', { method: 'POST', body: JSON.stringify(d) }).then(r => {
+    if (r.code === 0) showToast('SMTP配置保存成功');
+    else showToast(r.message, 'error');
+  });
+}
+
+function testSMTP() {
+  const d = {
+    smtp_host: document.getElementById('smtp_host').value,
+    smtp_port: document.getElementById('smtp_port').value,
+    smtp_user: document.getElementById('smtp_user').value,
+    smtp_pass: document.getElementById('smtp_pass').value,
+    smtp_from: document.getElementById('smtp_from').value,
+    smtp_security: document.getElementById('smtp_security').value,
+    test_email: document.getElementById('test_email').value
+  };
+  if (!d.test_email) { showToast('请输入测试邮件地址','error'); return; }
+  if (!d.smtp_host || !d.smtp_user || !d.smtp_pass) { showToast('请先填写完整的SMTP配置','error'); return; }
+  api('/settings/test-smtp', { method: 'POST', body: JSON.stringify(d) }).then(r => {
+    if (r.code === 0) showToast('测试邮件发送成功！请查收。');
+    else showToast(r.message, 'error');
+  });
 }
 
 function updateUser(e) {
