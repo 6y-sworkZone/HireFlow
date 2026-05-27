@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -250,13 +252,137 @@ func SendInterviewReminder(c *gin.Context) {
 		Method         string
 		Location       string
 		Link           string
+		CandidateName  string
+		CandidateEmail string
+		JobTitle       string
+		InterviewerIDs string
 	}
-	database.DB.QueryRow(
-		"SELECT candidate_job_id, interview_time, method, location, link FROM interviews WHERE id = ?",
+	database.DB.QueryRow(`
+		SELECT i.candidate_job_id, i.interview_time, i.method, i.location, i.link, i.interviewer_ids,
+			c.name as candidate_name, c.email as candidate_email, j.title as job_title
+		FROM interviews i
+		LEFT JOIN candidate_jobs cj ON i.candidate_job_id = cj.id
+		LEFT JOIN candidates c ON cj.candidate_id = c.id
+		LEFT JOIN jobs j ON cj.job_id = j.id
+		WHERE i.id = ?`,
 		id,
-	).Scan(&interview.CandidateJobID, &interview.InterviewTime, &interview.Method, &interview.Location, &interview.Link)
+	).Scan(&interview.CandidateJobID, &interview.InterviewTime, &interview.Method, &interview.Location, &interview.Link, &interview.InterviewerIDs,
+		&interview.CandidateName, &interview.CandidateEmail, &interview.JobTitle)
 
-	utils.Success(c, gin.H{"message": "提醒已发送"})
+	interviewTimeStr := interview.InterviewTime.Format("2006-01-02 15:04")
+
+	var errors []string
+
+	candidateSubject := fmt.Sprintf("面试提醒 - %s", interview.JobTitle)
+	candidateBody := fmt.Sprintf(`
+		<div style="font-family: Arial, sans-serif; padding: 20px;">
+			<h2>面试提醒</h2>
+			<p>尊敬的 <strong>%s</strong>：</p>
+			<p>您预约的面试信息如下：</p>
+			<table style="border-collapse: collapse; margin: 15px 0;">
+				<tr><td style="padding: 8px 15px; font-weight: bold;">职位：</td><td style="padding: 8px 15px;">%s</td></tr>
+				<tr><td style="padding: 8px 15px; font-weight: bold;">时间：</td><td style="padding: 8px 15px;">%s</td></tr>
+				<tr><td style="padding: 8px 15px; font-weight: bold;">方式：</td><td style="padding: 8px 15px;">%s</td></tr>
+				%s
+				%s
+			</table>
+			<p>请提前做好准备，准时参加面试。</p>
+			<p style="color: #888; font-size: 12px;">此邮件由 HireFlow 招聘管理系统自动发送</p>
+		</div>`,
+		interview.CandidateName,
+		interview.JobTitle,
+		interviewTimeStr,
+		interview.Method,
+		func() string {
+			if interview.Location != "" {
+				return fmt.Sprintf(`<tr><td style="padding: 8px 15px; font-weight: bold;">地点：</td><td style="padding: 8px 15px;">%s</td></tr>`, interview.Location)
+			}
+			return ""
+		}(),
+		func() string {
+			if interview.Link != "" {
+				return fmt.Sprintf(`<tr><td style="padding: 8px 15px; font-weight: bold;">链接：</td><td style="padding: 8px 15px;"><a href="%s">%s</a></td></tr>`, interview.Link, interview.Link)
+			}
+			return ""
+		}(),
+	)
+
+	if interview.CandidateEmail != "" {
+		if err := utils.SendEmail(interview.CandidateEmail, candidateSubject, candidateBody); err != nil {
+			errors = append(errors, fmt.Sprintf("候选人邮件发送失败: %v", err))
+		}
+	}
+
+	if interview.InterviewerIDs != "" {
+		var interviewerIDs []int
+		for _, idStr := range strings.Split(interview.InterviewerIDs, ",") {
+			if id, err := strconv.Atoi(strings.TrimSpace(idStr)); err == nil {
+				interviewerIDs = append(interviewerIDs, id)
+			}
+		}
+		if len(interviewerIDs) > 0 {
+			placeholders := make([]string, len(interviewerIDs))
+			args := make([]interface{}, len(interviewerIDs))
+			for i, id := range interviewerIDs {
+				placeholders[i] = "?"
+				args[i] = id
+			}
+			rows, err := database.DB.Query("SELECT email, real_name FROM users WHERE id IN ("+strings.Join(placeholders, ",")+")", args...)
+			if err == nil {
+				for rows.Next() {
+					var email, name string
+					rows.Scan(&email, &name)
+					if email == "" {
+						continue
+					}
+					interviewerSubject := fmt.Sprintf("面试提醒 - %s - %s", interview.CandidateName, interview.JobTitle)
+					interviewerBody := fmt.Sprintf(`
+						<div style="font-family: Arial, sans-serif; padding: 20px;">
+							<h2>面试提醒</h2>
+							<p>尊敬的 <strong>%s</strong>：</p>
+							<p>您有一场即将进行的面试：</p>
+							<table style="border-collapse: collapse; margin: 15px 0;">
+								<tr><td style="padding: 8px 15px; font-weight: bold;">候选人：</td><td style="padding: 8px 15px;">%s</td></tr>
+								<tr><td style="padding: 8px 15px; font-weight: bold;">职位：</td><td style="padding: 8px 15px;">%s</td></tr>
+								<tr><td style="padding: 8px 15px; font-weight: bold;">时间：</td><td style="padding: 8px 15px;">%s</td></tr>
+								<tr><td style="padding: 8px 15px; font-weight: bold;">方式：</td><td style="padding: 8px 15px;">%s</td></tr>
+								%s
+								%s
+							</table>
+							<p style="color: #888; font-size: 12px;">此邮件由 HireFlow 招聘管理系统自动发送</p>
+						</div>`,
+						name,
+						interview.CandidateName,
+						interview.JobTitle,
+						interviewTimeStr,
+						interview.Method,
+						func() string {
+							if interview.Location != "" {
+								return fmt.Sprintf(`<tr><td style="padding: 8px 15px; font-weight: bold;">地点：</td><td style="padding: 8px 15px;">%s</td></tr>`, interview.Location)
+							}
+							return ""
+						}(),
+						func() string {
+							if interview.Link != "" {
+								return fmt.Sprintf(`<tr><td style="padding: 8px 15px; font-weight: bold;">链接：</td><td style="padding: 8px 15px;"><a href="%s">%s</a></td></tr>`, interview.Link, interview.Link)
+							}
+							return ""
+						}(),
+					)
+					if err := utils.SendEmail(email, interviewerSubject, interviewerBody); err != nil {
+						errors = append(errors, fmt.Sprintf("%s邮件发送失败: %v", name, err))
+					}
+				}
+				rows.Close()
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		utils.Success(c, gin.H{"message": "部分提醒发送成功", "errors": errors})
+	} else {
+		utils.Success(c, gin.H{"message": "提醒已发送"})
+	}
 }
 
 func GetInterviewMethods(c *gin.Context) {

@@ -476,21 +476,30 @@ function loadKanban() {
       const d = r.data || {};
       const stages = ['简历筛选','电话面试','技术面试','HR面试','Offer','入职'];
       document.getElementById('kv').innerHTML = `<div class="kanban-board">
-        ${stages.map((n, i) => { const sn = i+1, cards = d[sn]||[]; return `<div class="kanban-column" ondragover="event.preventDefault()" ondrop="dropStage(event,${sn})"><div class="kanban-column-header"><span>${n}</span><span class="status-badge status-draft">${cards.length}</span></div>${cards.map(c => `<div class="kanban-card" draggable="true" ondragstart="dragStart(event,${c.candidate_job_id})"><div class="kanban-card-name">${c.name}</div><div class="kanban-card-info">${c.phone||c.email||''}</div><div class="kanban-card-info">${c.current_company||''} | ${c.work_years}年</div><div style="margin-top:8px;"><button class="btn btn-sm btn-secondary" onclick="moveStage(${c.candidate_job_id},${sn})">移动</button> <button class="btn btn-sm btn-danger" onclick="rejectCand(${c.candidate_job_id})">拒绝</button></div></div>`).join('')}</div>`; }).join('')}
+        ${stages.map((n, i) => { const sn = i+1, cards = d[sn]||[]; return `<div class="kanban-column"><div class="kanban-column-header"><span>${n}</span><span class="status-badge status-draft">${cards.length}</span></div>${cards.map(c => `<div class="kanban-card"><div class="kanban-card-name">${c.name}</div><div class="kanban-card-info">${c.phone||c.email||''}</div><div class="kanban-card-info">${c.current_company||''} | ${c.work_years}年</div><div style="margin-top:8px;"><button class="btn btn-sm btn-secondary" onclick="showMoveStageModal(${c.candidate_job_id},${sn})">移动</button> <button class="btn btn-sm btn-danger" onclick="rejectCand(${c.candidate_job_id})">拒绝</button></div></div>`).join('')}</div>`; }).join('')}
       </div>`;
     }
   });
 }
 
-let dCJID = null;
-function dragStart(e, id) { dCJID = id; }
-function dropStage(e, s) { e.preventDefault(); if (dCJID) { moveStage(dCJID, s); dCJID = null; } }
+function showMoveStageModal(id, cur) {
+  const stages = ['简历筛选','电话面试','技术面试','HR面试','Offer','入职'];
+  showModal(`<div class="modal-header"><h3 class="modal-title">移动阶段</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <form onsubmit="doMoveStage(event,${id})">
+      <div class="form-group"><label class="form-label">目标阶段</label>
+        <select class="form-select" id="mss" required>${stages.map((n,i)=>`<option value="${i+1}" ${i+1===cur?'selected':''}>${n}</option>`).join('')}</select>
+      </div>
+      <div class="form-group"><label class="form-label">阶段变更评价</label><textarea class="form-textarea" id="mse" rows="3"></textarea></div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button><button type="submit" class="btn btn-primary">确认移动</button></div>
+    </form>`);
+}
 
-function moveStage(id, cur) {
-  const ns = prompt('请输入目标阶段编号(1-6)：', cur); if (!ns) return;
-  const ev = prompt('请输入阶段变更评价：', '');
-  api('/candidate-jobs/' + id + '/move-stage', { method: 'PUT', body: JSON.stringify({ to_stage: parseInt(ns), evaluation: ev }) }).then(r => {
-    if (r.code === 0) { showToast('阶段更新成功'); loadKanban(); } else showToast(r.message, 'error');
+function doMoveStage(e, id) {
+  e.preventDefault();
+  const ns = parseInt(document.getElementById('mss').value);
+  const ev = document.getElementById('mse').value;
+  api('/candidate-jobs/' + id + '/move-stage', { method: 'PUT', body: JSON.stringify({ to_stage: ns, evaluation: ev }) }).then(r => {
+    if (r.code === 0) { showToast('阶段更新成功'); closeModal(); loadKanban(); } else showToast(r.message, 'error');
   });
 }
 
@@ -549,17 +558,42 @@ function viewWf(id) {
 
 function delWf(id) { if (!confirm('确定删除？')) return; api('/workflows/' + id, { method: 'DELETE' }).then(r => { if (r.code === 0) { showToast('删除成功'); showWfs(); } }); }
 
+let itvViewMode = 'list';
+let itvCalDate = new Date();
+
 function renderInterviews() {
-  document.getElementById('ct').innerHTML = `<div class="card">
-    <div class="card-header"><h3 class="card-title">面试安排</h3><div class="btn-group"><button class="btn btn-primary" onclick="showItvForm()">+ 创建面试</button></div></div>
-    <div class="filter-bar">
-      <div class="form-group"><label class="form-label">状态</label><select class="form-select" id="ist" onchange="loadItvs()"><option value="">全部状态</option><option value="scheduled">待进行</option><option value="completed">已完成</option></select></div>
-      <div class="form-group"><label class="form-label">开始日期</label><input type="date" class="form-input" id="isd" onchange="loadItvs()"></div>
-      <div class="form-group"><label class="form-label">结束日期</label><input type="date" class="form-input" id="ied" onchange="loadItvs()"></div>
-    </div>
-    <div id="il">加载中...</div>
-  </div>`;
-  loadItvs();
+  api('/auth/users').then(ur => {
+    const users = ur.code===0 ? (ur.data||[]) : [];
+    document.getElementById('ct').innerHTML = `<div class="card">
+      <div class="card-header"><h3 class="card-title">面试安排</h3>
+        <div class="btn-group">
+          <div class="view-toggle" style="margin-right:12px;">
+            <button class="${itvViewMode==='list'?'active':''}" onclick="switchItvView('list')">列表</button>
+            <button class="${itvViewMode==='calendar'?'active':''}" onclick="switchItvView('calendar')">日历</button>
+          </div>
+          <button class="btn btn-primary" onclick="showItvForm()">+ 创建面试</button>
+        </div>
+      </div>
+      <div class="filter-bar">
+        <div class="form-group"><label class="form-label">状态</label><select class="form-select" id="ist" onchange="refreshItvs()"><option value="">全部状态</option><option value="scheduled">待进行</option><option value="completed">已完成</option></select></div>
+        <div class="form-group"><label class="form-label">面试官</label><select class="form-select" id="iir" onchange="refreshItvs()"><option value="">全部面试官</option>${users.map(u=>`<option value="${u.id}">${u.real_name}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">开始日期</label><input type="date" class="form-input" id="isd" onchange="refreshItvs()"></div>
+        <div class="form-group"><label class="form-label">结束日期</label><input type="date" class="form-input" id="ied" onchange="refreshItvs()"></div>
+      </div>
+      <div id="il">加载中...</div>
+    </div>`;
+    refreshItvs();
+  });
+}
+
+function switchItvView(view) {
+  itvViewMode = view;
+  renderInterviews();
+}
+
+function refreshItvs() {
+  if (itvViewMode === 'calendar') loadCalendarEvents();
+  else loadItvs();
 }
 
 function loadItvs() {
@@ -573,6 +607,130 @@ function loadItvs() {
         `<table><thead><tr><th>候选人</th><th>职位</th><th>面试时间</th><th>方式</th><th>时长</th><th>状态</th><th>操作</th></tr></thead><tbody>
           ${list.map(i => `<tr><td><strong>${i.candidate_name||'-'}</strong></td><td>${i.job_title||'-'}</td><td>${fmt(i.interview_time)}</td><td><span class="tag">${i.method}</span></td><td>${i.duration}分钟</td><td><span class="status-badge status-${i.status}">${statusText(i.status)}</span></td><td><button class="btn btn-sm btn-secondary" onclick="viewItv(${i.id})">详情</button> <button class="btn btn-sm btn-secondary" onclick="showItvForm(${i.id})">编辑</button> ${i.status==='scheduled' ? `<button class="btn btn-sm btn-secondary" onclick="showEvalForm(${i.id})">评价</button>` : ''}</td></tr>`).join('')}
         </tbody></table>`;
+    }
+  });
+}
+
+function loadCalendarEvents() {
+  const year = itvCalDate.getFullYear();
+  const month = itvCalDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const sd = firstDay.toISOString().split('T')[0];
+  const ed = lastDay.toISOString().split('T')[0];
+
+  let url = `/interviews/calendar?start_date=${sd}&end_date=${ed}`;
+  const st = document.getElementById('ist')?.value;
+  const ir = document.getElementById('iir')?.value;
+  if (st) url += `&status=${st}`;
+  if (ir) url += `&interviewer_id=${ir}`;
+
+  api(url).then(r => {
+    if (r.code === 0) {
+      const events = r.data || [];
+      renderCalendar(events, year, month);
+    }
+  });
+}
+
+function renderCalendar(events, year, month) {
+  const monthNames = ['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
+  const dayNames = ['日','一','二','三','四','五','六'];
+
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const startDay = firstDay.getDay();
+  const totalDays = lastDay.getDate();
+  const prevLastDay = new Date(year, month, 0).getDate();
+
+  const today = new Date();
+  const todayStr = today.toDateString();
+
+  let eventsByDate = {};
+  events.forEach(e => {
+    const d = e.interview_time.split('T')[0];
+    if (!eventsByDate[d]) eventsByDate[d] = [];
+    eventsByDate[d].push(e);
+  });
+
+  let html = `<div class="calendar-container">
+    <div class="calendar-header">
+      <button class="calendar-nav-btn" onclick="prevMonth()">&lsaquo;</button>
+      <span class="calendar-title">${year}年 ${monthNames[month]}</span>
+      <button class="calendar-nav-btn" onclick="nextMonth()">&rsaquo;</button>
+    </div>
+    <div class="calendar-grid">`;
+
+  dayNames.forEach(d => { html += `<div class="calendar-day-header">${d}</div>`; });
+
+  let cells = [];
+  for (let i = 0; i < startDay; i++) {
+    cells.push({ day: prevLastDay - startDay + 1 + i, otherMonth: true, date: `${year}-${String(month).padStart(2,'0')}-${String(prevLastDay - startDay + 1 + i).padStart(2,'0')}` });
+  }
+  for (let i = 1; i <= totalDays; i++) {
+    cells.push({ day: i, otherMonth: false, date: `${year}-${String(month+1).padStart(2,'0')}-${String(i).padStart(2,'0')}` });
+  }
+  const remaining = 42 - cells.length;
+  for (let i = 1; i <= remaining; i++) {
+    cells.push({ day: i, otherMonth: true, date: `${year}-${String(month+2).padStart(2,'0')}-${String(i).padStart(2,'0')}` });
+  }
+
+  cells.forEach(cell => {
+    const cellDate = new Date(cell.date);
+    const isToday = cellDate.toDateString() === todayStr;
+    const dayEvents = eventsByDate[cell.date] || [];
+    const shownEvents = dayEvents.slice(0, 3);
+    const moreCount = dayEvents.length - shownEvents.length;
+
+    html += `<div class="calendar-day ${cell.otherMonth?'other-month':''} ${isToday?'today':''}">
+      <div class="calendar-day-date">${cell.day}</div>`;
+
+    shownEvents.forEach(e => {
+      const timeStr = e.interview_time.split('T')[1]?.substring(0,5) || '';
+      html += `<div class="calendar-event ${e.status==='completed'?'completed':''}" onclick="viewItv(${e.id})" title="${e.candidate_name} - ${e.job_title}\n${timeStr} ${e.method}">${timeStr} ${e.candidate_name||'-'}</div>`;
+    });
+
+    if (moreCount > 0) {
+      html += `<div class="calendar-more" onclick="showDayEvents('${cell.date}')">+${moreCount} 更多</div>`;
+    }
+
+    html += `</div>`;
+  });
+
+  html += `</div></div>`;
+
+  document.getElementById('il').innerHTML = html;
+}
+
+function prevMonth() {
+  itvCalDate.setMonth(itvCalDate.getMonth() - 1);
+  loadCalendarEvents();
+}
+
+function nextMonth() {
+  itvCalDate.setMonth(itvCalDate.getMonth() + 1);
+  loadCalendarEvents();
+}
+
+function showDayEvents(dateStr) {
+  api(`/interviews/calendar?start_date=${dateStr}&end_date=${dateStr}`).then(r => {
+    if (r.code === 0 && r.data) {
+      const events = r.data;
+      showModal(`<div class="modal-header"><h3 class="modal-title">${dateStr} 面试安排</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+        <div style="max-height:400px;overflow-y:auto;">
+          ${events.length===0 ? '<div class="empty-state">暂无面试</div>' :
+            events.map(e => `<div style="padding:12px;border:1px solid #eee;border-radius:6px;margin-bottom:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div><strong>${e.candidate_name||'-'}</strong> - ${e.job_title||'-'}</div>
+                <span class="status-badge status-${e.status}">${statusText(e.status)}</span>
+              </div>
+              <p style="margin:8px 0 0;font-size:13px;color:#666;">时间: ${fmt(e.interview_time)} | 方式: ${e.method} | 时长: ${e.duration}分钟</p>
+              ${e.location ? `<p style="margin:4px 0 0;font-size:12px;color:#888;">地点: ${e.location}</p>` : ''}
+              ${e.link ? `<p style="margin:4px 0 0;font-size:12px;color:#888;">链接: ${e.link}</p>` : ''}
+              <div style="margin-top:8px;"><button class="btn btn-sm btn-secondary" onclick="viewItv(${e.id});closeModal();">查看详情</button></div>
+            </div>`).join('')}
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">关闭</button></div>`);
     }
   });
 }
